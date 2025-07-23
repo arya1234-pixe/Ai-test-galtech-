@@ -1,56 +1,48 @@
-import os
 import streamlit as st
+from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
+from langchain.document_loaders import PyPDFLoader
+from langchain.chains.question_answering import load_qa_chain
+from langchain.llms import HuggingFaceHub
+import os
 
-
-# Embedding model
-embedding_model = OpenAIEmbeddings(openai_api_key="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")
-
-
-# Title
+# ---- Set Up ----
+st.set_page_config(page_title="PDF Chatbot", page_icon="📄", layout="wide")
 st.title("📄 PDF Chatbot")
 
-# Step 1: Upload PDF
-uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
+# ---- Upload PDF ----
+pdf = st.file_uploader("Upload your PDF", type="pdf")
 
-# Session state to store chain
-if "qa_chain" not in st.session_state:
-    st.session_state.qa_chain = None
-
-if uploaded_file:
-    # Save the uploaded file to a temporary location
+if pdf:
+    # Save temporarily
     with open("temp.pdf", "wb") as f:
-        f.write(uploaded_file.read())
+        f.write(pdf.read())
 
-    # Step 2: Load and split
+    # Load and split text
     loader = PyPDFLoader("temp.pdf")
-    pages = loader.load()
+    pages = loader.load_and_split()
+
     text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     docs = text_splitter.split_documents(pages)
 
-    # Step 3: Create vectorstore
-    vectordb = FAISS.from_documents(docs, embedding_model)
+    # Embeddings
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-    # Step 4: Setup retrieval chain
-    llm = ChatOpenAI(openai_api_key="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")
+    # Vectorstore
+    vectorstore = FAISS.from_documents(docs, embeddings)
 
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    qa_chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=vectordb.as_retriever(), memory=memory)
-    st.session_state.qa_chain = qa_chain
+    # Question Input
+    st.success("PDF Processed! Now ask a question 👇")
+    query = st.text_input("Ask something about the PDF:")
 
-    st.success("✅ PDF processed. You can now ask questions below.")
+    if query:
+        # QA Chain
+       from langchain.llms import HuggingFaceHub
 
-# Step 5: Input box for questions
-if st.session_state.qa_chain:
-    user_question = st.text_input("Ask a question about the PDF:")
-    if user_question:
-        result = st.session_state.qa_chain.run(user_question)
-        st.markdown(f"**Answer:** {result}")
+llm = HuggingFaceHub(
+    repo_id="google/flan-t5-base",
+    model_kwargs={"temperature": 0.5, "max_length": 256},
+    task="text2text-generation",  # ✅ This is the required fix
+    huggingfacehub_api_token="your_token_here"  # optional if set via env variable
+)
