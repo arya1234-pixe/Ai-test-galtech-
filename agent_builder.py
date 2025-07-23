@@ -3,11 +3,15 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain.vectorstores import FAISS
 from langchain.agents import initialize_agent
+from langchain.embeddings import OpenAIEmbeddings  # ✅ Add this
 from backend.tools import get_tools
+
 import os
 
 def load_vectorstore(index_path='vectordb/faiss_index'):
-    return FAISS.load_local(index_path, embeddings=ChatOpenAI().embedding)
+    embedding_model = OpenAIEmbeddings()
+    return FAISS.load_local(index_path, embeddings=embedding_model, allow_dangerous_deserialization=True)
+
 
 def build_agent():
     llm = ChatOpenAI(temperature=0)

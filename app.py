@@ -1,47 +1,56 @@
-import streamlit as st
 import os
-from dotenv import load_dotenv
-from backend.pdf_processor import process_pdf
-from backend.agent_builder import build_agent
+import streamlit as st
+from langchain.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.document_loaders import PyPDFLoader
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.chat_models import ChatOpenAI
 
-load_dotenv()
-os.environ["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"] = os.getenv("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")
 
-st.set_page_config(page_title="AI Agent PDF Chat", layout="wide")
-st.title("📄 Chat with Your PDF using AI Agent")
+# Embedding model
+embedding_model = OpenAIEmbeddings(openai_api_key="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")
 
-# Upload Section
-uploaded_file = st.file_uploader("Upload your PDF", type="pdf")
+
+# Title
+st.title("📄 PDF Chatbot")
+
+# Step 1: Upload PDF
+uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
+
+# Session state to store chain
+if "qa_chain" not in st.session_state:
+    st.session_state.qa_chain = None
 
 if uploaded_file:
-    if not os.path.exists("data/uploaded_pdfs"):
-        os.makedirs("data/uploaded_pdfs")
-    
-    pdf_path = os.path.join("data/uploaded_pdfs", uploaded_file.name)
-    with open(pdf_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    st.success("✅ PDF uploaded successfully!")
+    # Save the uploaded file to a temporary location
+    with open("temp.pdf", "wb") as f:
+        f.write(uploaded_file.read())
 
-    # Process PDF
-    with st.spinner("Processing PDF and building RAG..."):
-        process_pdf(pdf_path)
-        st.success("✅ PDF processed and vectorized!")
+    # Step 2: Load and split
+    loader = PyPDFLoader("temp.pdf")
+    pages = loader.load()
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    docs = text_splitter.split_documents(pages)
 
-    st.session_state["agent"] = build_agent()
+    # Step 3: Create vectorstore
+    vectordb = FAISS.from_documents(docs, embedding_model)
 
-# Chat UI
-if "agent" in st.session_state:
-    st.subheader("💬 Ask questions about the document")
+    # Step 4: Setup retrieval chain
+    llm = ChatOpenAI(openai_api_key="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")
 
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    qa_chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=vectordb.as_retriever(), memory=memory)
+    st.session_state.qa_chain = qa_chain
 
-    user_input = st.text_input("You:", key="user_input")
-    if st.button("Send") and user_input:
-        with st.spinner("Thinking..."):
-            response = st.session_state["agent"].run(user_input)
-            st.session_state.chat_history.append(("You", user_input))
-            st.session_state.chat_history.append(("Agent", response))
+    st.success("✅ PDF processed. You can now ask questions below.")
 
-    for role, msg in st.session_state.chat_history:
-        st.markdown(f"**{role}:** {msg}")
+# Step 5: Input box for questions
+if st.session_state.qa_chain:
+    user_question = st.text_input("Ask a question about the PDF:")
+    if user_question:
+        result = st.session_state.qa_chain.run(user_question)
+        st.markdown(f"**Answer:** {result}")
